@@ -8,6 +8,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 </head>
 <body>
     <div class="container">
@@ -51,6 +52,14 @@
                     <p>DCL Common</p>
                     <button class="btn btn-primary block-select-btn" onclick="app.selectBlock('dcl')">
                         <i class="fas fa-arrow-right"></i> 選択
+                    </button>
+                </div>
+                
+                <div class="block-card" data-block="manual">
+                    <h3>マニュアル</h3>
+                    <p>User Manual</p>
+                    <button class="btn btn-info block-select-btn" onclick="app.openManual()">
+                        <i class="fas fa-book"></i> 閲覧
                     </button>
                 </div>
             </div>
@@ -181,6 +190,36 @@
                                     <input type="date" id="cumulativeEndDate">
                                 </div>
                             </div>
+                        </div>
+
+                        <div class="batch-export-section">
+                            <h4><i class="fas fa-archive"></i> 一括エクスポート</h4>
+                            <p class="batch-export-description">複数のレポートタイプとCSVをまとめてZIPファイルでダウンロードできます</p>
+                            <div class="batch-export-checkboxes">
+                                <label class="checkbox-label">
+                                    <input type="checkbox" id="exportDailyReport" checked>
+                                    <span>日次レポート</span>
+                                </label>
+                                <label class="checkbox-label">
+                                    <input type="checkbox" id="exportWeeklyReport" checked>
+                                    <span>週次レポート</span>
+                                </label>
+                                <label class="checkbox-label">
+                                    <input type="checkbox" id="exportMonthlyReport" checked>
+                                    <span>月次レポート</span>
+                                </label>
+                                <label class="checkbox-label">
+                                    <input type="checkbox" id="exportCumulativeReport" checked>
+                                    <span>累計レポート</span>
+                                </label>
+                                <label class="checkbox-label">
+                                    <input type="checkbox" id="exportCSV" checked>
+                                    <span>CSV</span>
+                                </label>
+                            </div>
+                            <button id="downloadBatchZip" class="btn btn-warning">
+                                <i class="fas fa-file-archive"></i> 選択項目をZIPでダウンロード
+                            </button>
                         </div>
 
                         <div class="form-actions">
@@ -325,13 +364,24 @@
                 </div>
                 <div class="email-notice">
                     <i class="fas fa-info-circle"></i>
-                    <strong>注意:</strong> 「送信」ボタンをクリックすると、お使いのメールソフトが起動します。
+                    <strong>メール送信方法を選択してください：</strong>
                 </div>
                 <div class="form-actions">
-                    <button id="sendEmailBtn" class="btn btn-success">
-                        <i class="fas fa-paper-plane"></i> 送信
+                    <div class="email-button-group">
+                        <button id="sendGmailBtn" class="btn btn-gmail">
+                            <i class="fab fa-google"></i> Gmail で開く
+                        </button>
+                        <button id="sendOutlookBtn" class="btn btn-outlook">
+                            <i class="fab fa-microsoft"></i> Outlook.com で開く
+                        </button>
+                        <button id="sendEmailBtn" class="btn btn-success">
+                            <i class="fas fa-envelope"></i> メールソフトで開く
+                        </button>
+                    </div>
+                    <button id="copyToClipboard" class="btn btn-secondary" style="margin-top: 10px;">
+                        <i class="fas fa-copy"></i> クリップボードにコピー
                     </button>
-                    <button onclick="app.closeEmailModal()" class="btn btn-secondary">
+                    <button onclick="app.closeEmailModal()" class="btn btn-secondary" style="margin-top: 10px;">
                         <i class="fas fa-times"></i> キャンセル
                     </button>
                 </div>
@@ -368,12 +418,15 @@
                 <span class="close close-modal">&times;</span>
             </div>
             <div class="modal-body">
-                <div class="import-file-select">
+                <div id="dropZone" class="drop-zone">
+                    <i class="fas fa-cloud-upload-alt"></i>
+                    <h4>ファイルをドラッグ&ドロップ</h4>
+                    <p>または</p>
                     <label for="importFileInput" class="file-select-btn">
-                        <i class="fas fa-folder-open"></i> JSONファイルを選択
+                        <i class="fas fa-folder-open"></i> ファイルを選択
                     </label>
-                    <input type="file" id="importFileInput" accept=".json" style="display: none;">
-                    <div id="importFileName" class="file-name">ファイルが選択されていません</div>
+                    <input type="file" id="importFileInput" accept=".json,.csv,.zip" style="display: none;">
+                    <div id="importFileName" class="file-name">JSON, CSV, ZIPファイルに対応</div>
                 </div>
                 
                 <div id="importPreview" class="import-preview" style="display: none;"></div>
@@ -408,6 +461,19 @@
                         </button>
                     </div>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- マニュアルモーダル -->
+    <div id="manualModal" class="modal">
+        <div class="modal-content modal-fullscreen">
+            <div class="modal-header">
+                <h3><i class="fas fa-book"></i> 操作マニュアル</h3>
+                <span class="close" onclick="app.closeManual()">&times;</span>
+            </div>
+            <div class="modal-body">
+                <iframe id="manualFrame" style="width: 100%; height: calc(100vh - 150px); border: none;"></iframe>
             </div>
         </div>
     </div>

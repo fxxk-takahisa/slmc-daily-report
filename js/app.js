@@ -1,6 +1,6 @@
 // ===================================
 // SLMC日次報告書作成アプリ - メインJavaScript
-// マルチブロック対応版 v2.1.6
+// マルチブロック対応版 v2.1.7
 // ===================================
 
 class DailyReportApp {
@@ -42,6 +42,7 @@ class DailyReportApp {
         document.getElementById('downloadReport').addEventListener('click', () => this.downloadReport());
         document.getElementById('downloadCSV').addEventListener('click', () => this.downloadCSV());
         document.getElementById('sendEmail').addEventListener('click', () => this.openEmailModal());
+        document.getElementById('downloadBatchZip').addEventListener('click', () => this.downloadBatchZip());
 
         // データ検索
         document.getElementById('searchData').addEventListener('click', () => this.searchData());
@@ -55,6 +56,9 @@ class DailyReportApp {
         // メール設定
         document.getElementById('addEmail').addEventListener('click', () => this.addEmailAddress());
         document.getElementById('sendEmailBtn').addEventListener('click', () => this.sendEmail());
+        document.getElementById('sendGmailBtn').addEventListener('click', () => this.sendGmail());
+        document.getElementById('sendOutlookBtn').addEventListener('click', () => this.sendOutlook());
+        document.getElementById('copyToClipboard').addEventListener('click', () => this.copyToClipboard());
         
         // データインポート
         document.getElementById('importData').addEventListener('click', () => this.openImportModal());
@@ -923,6 +927,128 @@ class DailyReportApp {
         return stringValue;
     }
 
+    // 一括ZIPダウンロード
+    async downloadBatchZip() {
+        const exportDaily = document.getElementById('exportDailyReport').checked;
+        const exportWeekly = document.getElementById('exportWeeklyReport').checked;
+        const exportMonthly = document.getElementById('exportMonthlyReport').checked;
+        const exportCumulative = document.getElementById('exportCumulativeReport').checked;
+        const exportCSV = document.getElementById('exportCSV').checked;
+
+        if (!exportDaily && !exportWeekly && !exportMonthly && !exportCumulative && !exportCSV) {
+            this.showNotification('少なくとも1つの項目を選択してください', 'warning');
+            return;
+        }
+
+        const zip = new JSZip();
+        const dateStr = new Date().toISOString().split('T')[0];
+        const blockName = this.blockNames[this.currentBlock];
+
+        try {
+            // 日次レポート
+            if (exportDaily) {
+                const dailyDate = document.getElementById('dailyDate').value;
+                const dailyReports = this.getReports().filter(r => r.reportDate === dailyDate);
+                if (dailyReports.length > 0) {
+                    const reportText = this.buildDailyReportText(dailyReports[0]);
+                    zip.file(`日次レポート_${dailyDate}_${blockName}.txt`, reportText);
+                }
+            }
+
+            // 週次レポート
+            if (exportWeekly) {
+                const weeklyDate = document.getElementById('weeklyDate').value;
+                const weeklyReports = this.getWeeklyReports(weeklyDate);
+                if (weeklyReports.length > 0) {
+                    const reportText = this.buildAggregateReportText('週次レポート', weeklyReports);
+                    const weekStart = weeklyReports[0].reportDate;
+                    const weekEnd = weeklyReports[weeklyReports.length - 1].reportDate;
+                    zip.file(`週次レポート_${weekStart}_${weekEnd}_${blockName}.txt`, reportText);
+                }
+            }
+
+            // 月次レポート
+            if (exportMonthly) {
+                const year = document.getElementById('monthlyYear').value;
+                const month = document.getElementById('monthlyMonth').value;
+                const monthlyReports = this.getMonthlyReports(year, month);
+                if (monthlyReports.length > 0) {
+                    const reportText = this.buildAggregateReportText('月次レポート', monthlyReports);
+                    zip.file(`月次レポート_${year}年${month}月_${blockName}.txt`, reportText);
+                }
+            }
+
+            // 累計レポート
+            if (exportCumulative) {
+                const startDate = document.getElementById('cumulativeStartDate').value;
+                const endDate = document.getElementById('cumulativeEndDate').value;
+                const cumulativeReports = this.getCumulativeReports(startDate, endDate);
+                if (cumulativeReports.length > 0) {
+                    const reportText = this.buildAggregateReportText('累計レポート', cumulativeReports);
+                    zip.file(`累計レポート_${startDate}_${endDate}_${blockName}.txt`, reportText);
+                }
+            }
+
+            // CSV
+            if (exportCSV) {
+                const reports = this.getReports();
+                if (reports.length > 0) {
+                    const csvContent = this.generateCSVContent(reports);
+                    zip.file(`全データ_${blockName}_${dateStr}.csv`, csvContent);
+                }
+            }
+
+            // ZIPを生成してダウンロード
+            const content = await zip.generateAsync({type: 'blob'});
+            const url = URL.createObjectURL(content);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `SLMC日次報告_一括出力_${blockName}_${dateStr}.zip`;
+            a.click();
+            URL.revokeObjectURL(url);
+
+            this.showNotification('ZIPファイルをダウンロードしました', 'success');
+        } catch (error) {
+            console.error('ZIP生成エラー:', error);
+            this.showNotification('ZIPファイルの生成に失敗しました', 'error');
+        }
+    }
+
+    // CSV内容を生成
+    generateCSVContent(reports) {
+        const headers = [
+            'ID', 'ブロック', '日付', 'BASE名', '報告者名'
+        ];
+
+        const sampleReport = reports[0];
+        const fieldKeys = Object.keys(sampleReport).filter(key => 
+            !['id', 'block', 'reportDate', 'baseName', 'reporterName'].includes(key)
+        );
+        
+        headers.push(...fieldKeys);
+
+        let csvContent = '\uFEFF';
+        csvContent += headers.join(',') + '\n';
+
+        reports.forEach(report => {
+            const row = [
+                this.escapeCsvValue(report.id),
+                this.escapeCsvValue(this.blockNames[report.block] || report.block),
+                this.escapeCsvValue(report.reportDate),
+                this.escapeCsvValue(report.baseName),
+                this.escapeCsvValue(report.reporterName)
+            ];
+
+            fieldKeys.forEach(key => {
+                row.push(this.escapeCsvValue(report[key]));
+            });
+
+            csvContent += row.join(',') + '\n';
+        });
+
+        return csvContent;
+    }
+
     // メール送信モーダルを開く
     openEmailModal() {
         if (!this.currentReportText) {
@@ -972,21 +1098,10 @@ class DailyReportApp {
         document.getElementById('emailModal').classList.remove('active');
     }
 
-    // メール送信
+    // メール送信（メールソフト）
     sendEmail() {
-        // 選択された送信先を取得
-        const checkboxes = document.querySelectorAll('#emailRecipientList input[type="checkbox"]:checked');
-        
-        if (checkboxes.length === 0) {
-            this.showNotification('送信先を1つ以上選択してください', 'warning');
-            return;
-        }
-
-        // 選択された全メールアドレスを取得
-        const recipientAddresses = Array.from(checkboxes).map(cb => cb.dataset.address);
-
-        const subject = document.getElementById('emailSubject').value;
-        const body = document.getElementById('emailBody').value;
+        const {recipientAddresses, subject, body} = this.getEmailData();
+        if (!recipientAddresses) return;
 
         // mailto: リンクを生成（複数宛先はセミコロン区切り）
         const recipientsString = recipientAddresses.join(';');
@@ -996,7 +1111,87 @@ class DailyReportApp {
         window.location.href = mailtoLink;
         
         this.closeEmailModal();
-        this.showNotification(`メールソフトを起動しました（${checkboxes.length}件の送信先）`, 'success');
+        this.showNotification(`メールソフトを起動しました（${recipientAddresses.length}件の送信先）`, 'success');
+    }
+
+    // Gmail Web版で開く
+    sendGmail() {
+        const {recipientAddresses, subject, body} = this.getEmailData();
+        if (!recipientAddresses) return;
+
+        // URLの長さチェック
+        const totalLength = subject.length + body.length + recipientAddresses.join(',').length;
+        if (totalLength > 1800) {
+            if (!confirm('メール本文が長いため、一部が切れる可能性があります。続けますか？\n\n代わりに「クリップボードにコピー」ボタンを使用して、手動で貼り付けることをお勧めします。')) {
+                return;
+            }
+        }
+
+        const recipientsString = recipientAddresses.join(',');
+        const gmailLink = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(recipientsString)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+        
+        window.open(gmailLink, '_blank');
+        this.closeEmailModal();
+        this.showNotification(`Gmailを開きました（${recipientAddresses.length}件の送信先）`, 'success');
+    }
+
+    // Outlook.com Web版で開く
+    sendOutlook() {
+        const {recipientAddresses, subject, body} = this.getEmailData();
+        if (!recipientAddresses) return;
+
+        // URLの長さチェック
+        const totalLength = subject.length + body.length + recipientAddresses.join(';').length;
+        if (totalLength > 1800) {
+            if (!confirm('メール本文が長いため、一部が切れる可能性があります。続けますか？\n\n代わりに「クリップボードにコピー」ボタンを使用して、手動で貼り付けることをお勧めします。')) {
+                return;
+            }
+        }
+
+        const recipientsString = recipientAddresses.join(';');
+        const outlookLink = `https://outlook.live.com/mail/0/deeplink/compose?to=${encodeURIComponent(recipientsString)}&subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+        
+        window.open(outlookLink, '_blank');
+        this.closeEmailModal();
+        this.showNotification(`Outlook.comを開きました（${recipientAddresses.length}件の送信先）`, 'success');
+    }
+
+    // クリップボードにコピー
+    copyToClipboard() {
+        const {recipientAddresses, subject, body} = this.getEmailData();
+        if (!recipientAddresses) return;
+
+        const recipientsString = recipientAddresses.join('; ');
+        const fullText = `宛先: ${recipientsString}\n\n件名: ${subject}\n\n${body}`;
+        
+        navigator.clipboard.writeText(fullText).then(() => {
+            this.showNotification('クリップボードにコピーしました', 'success');
+        }).catch(() => {
+            // フォールバック：テキストエリアを使用
+            const textarea = document.createElement('textarea');
+            textarea.value = fullText;
+            document.body.appendChild(textarea);
+            textarea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textarea);
+            this.showNotification('クリップボードにコピーしました', 'success');
+        });
+    }
+
+    // メールデータ取得（共通処理）
+    getEmailData() {
+        const checkboxes = document.querySelectorAll('#emailRecipientList input[type="checkbox"]:checked');
+        
+        if (checkboxes.length === 0) {
+            this.showNotification('送信先を1つ以上選択してください', 'warning');
+            return {};
+        }
+
+        const recipientAddresses = Array.from(checkboxes).map(cb => cb.dataset.address);
+        const subject = document.getElementById('emailSubject').value;
+        const body = document.getElementById('emailBody').value;
+
+        return {recipientAddresses, subject, body};
     }
 
     // メールアドレス追加
@@ -1085,6 +1280,23 @@ class DailyReportApp {
     getEmailAddresses() {
         const data = localStorage.getItem('emailAddresses');
         return data ? JSON.parse(data) : [];
+    }
+
+    // マニュアルを開く
+    openManual() {
+        const modal = document.getElementById('manualModal');
+        const iframe = document.getElementById('manualFrame');
+        
+        // マニュアルHTMLを読み込む
+        iframe.src = 'manual_v2.1.7.html';
+        
+        modal.style.display = 'block';
+    }
+
+    // マニュアルを閉じる
+    closeManual() {
+        const modal = document.getElementById('manualModal');
+        modal.style.display = 'none';
     }
 
     // グラフ描画
@@ -1391,10 +1603,32 @@ class DailyReportApp {
     openImportModal() {
         const modal = document.getElementById('importModal');
         document.getElementById('importFileInput').value = '';
-        document.getElementById('importFileName').textContent = 'ファイルが選択されていません';
+        document.getElementById('importFileName').textContent = 'JSON, CSV, ZIPファイルに対応';
         document.getElementById('importPreview').style.display = 'none';
         document.getElementById('importActions').style.display = 'none';
         modal.style.display = 'flex';
+        
+        // ドラッグ&ドロップイベント設定
+        const dropZone = document.getElementById('dropZone');
+        
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('drag-over');
+        });
+        
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.classList.remove('drag-over');
+        });
+        
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('drag-over');
+            
+            const file = e.dataTransfer.files[0];
+            if (file) {
+                this.processImportFile(file);
+            }
+        });
     }
     
     // ファイル選択処理
@@ -1402,28 +1636,168 @@ class DailyReportApp {
         const file = event.target.files[0];
         if (!file) return;
         
+        this.processImportFile(file);
+    }
+    
+    // インポートファイル処理
+    async processImportFile(file) {
         document.getElementById('importFileName').textContent = file.name;
         
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            try {
-                const data = JSON.parse(e.target.result);
-                
-                if (!Array.isArray(data)) {
-                    throw new Error('データ形式が不正です。配列形式のJSONファイルを選択してください。');
-                }
-                
-                // データをプレビュー
-                this.previewImportData(data);
-                
-            } catch (error) {
-                this.showNotification(`ファイル読み込みエラー: ${error.message}`, 'error');
-                document.getElementById('importFileInput').value = '';
-                document.getElementById('importFileName').textContent = 'ファイルが選択されていません';
-            }
-        };
+        const fileExtension = file.name.split('.').pop().toLowerCase();
         
-        reader.readAsText(file);
+        try {
+            if (fileExtension === 'json') {
+                await this.processJSONFile(file);
+            } else if (fileExtension === 'csv') {
+                await this.processCSVFile(file);
+            } else if (fileExtension === 'zip') {
+                await this.processZIPFile(file);
+            } else {
+                throw new Error('対応していないファイル形式です。JSON, CSV, ZIPファイルを選択してください。');
+            }
+        } catch (error) {
+            this.showNotification(`ファイル読み込みエラー: ${error.message}`, 'error');
+            document.getElementById('importFileInput').value = '';
+            document.getElementById('importFileName').textContent = 'JSON, CSV, ZIPファイルに対応';
+        }
+    }
+    
+    // JSONファイル処理
+    async processJSONFile(file) {
+        const reader = new FileReader();
+        
+        return new Promise((resolve, reject) => {
+            reader.onload = (e) => {
+                try {
+                    const data = JSON.parse(e.target.result);
+                    
+                    if (!Array.isArray(data)) {
+                        throw new Error('データ形式が不正です。配列形式のJSONファイルを選択してください。');
+                    }
+                    
+                    this.previewImportData(data);
+                    resolve();
+                } catch (error) {
+                    reject(error);
+                }
+            };
+            
+            reader.onerror = () => reject(new Error('ファイルの読み込みに失敗しました'));
+            reader.readAsText(file);
+        });
+    }
+    
+    // CSVファイル処理
+    async processCSVFile(file) {
+        const reader = new FileReader();
+        
+        return new Promise((resolve, reject) => {
+            reader.onload = (e) => {
+                try {
+                    const csvText = e.target.result;
+                    const data = this.parseCSV(csvText);
+                    
+                    if (data.length === 0) {
+                        throw new Error('CSVファイルにデータが含まれていません。');
+                    }
+                    
+                    this.previewImportData(data);
+                    resolve();
+                } catch (error) {
+                    reject(error);
+                }
+            };
+            
+            reader.onerror = () => reject(new Error('ファイルの読み込みに失敗しました'));
+            reader.readAsText(file);
+        });
+    }
+    
+    // ZIPファイル処理
+    async processZIPFile(file) {
+        try {
+            const zip = await JSZip.loadAsync(file);
+            const files = Object.keys(zip.files);
+            
+            // JSONまたはCSVファイルを探す
+            const dataFile = files.find(name => 
+                name.endsWith('.json') || name.endsWith('.csv')
+            );
+            
+            if (!dataFile) {
+                throw new Error('ZIP内にJSON/CSVファイルが見つかりません。');
+            }
+            
+            const content = await zip.files[dataFile].async('text');
+            
+            if (dataFile.endsWith('.json')) {
+                const data = JSON.parse(content);
+                if (!Array.isArray(data)) {
+                    throw new Error('データ形式が不正です。');
+                }
+                this.previewImportData(data);
+            } else if (dataFile.endsWith('.csv')) {
+                const data = this.parseCSV(content);
+                this.previewImportData(data);
+            }
+        } catch (error) {
+            throw new Error(`ZIP解凍エラー: ${error.message}`);
+        }
+    }
+    
+    // CSV解析
+    parseCSV(csvText) {
+        // BOM削除
+        csvText = csvText.replace(/^\uFEFF/, '');
+        
+        const lines = csvText.split('\n').filter(line => line.trim());
+        if (lines.length < 2) {
+            throw new Error('CSVファイルの形式が不正です。');
+        }
+        
+        const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
+        const data = [];
+        
+        for (let i = 1; i < lines.length; i++) {
+            const values = this.parseCSVLine(lines[i]);
+            const obj = {};
+            
+            headers.forEach((header, index) => {
+                obj[header] = values[index] || '';
+            });
+            
+            data.push(obj);
+        }
+        
+        return data;
+    }
+    
+    // CSV行解析（カンマ区切り、ダブルクォート対応）
+    parseCSVLine(line) {
+        const result = [];
+        let current = '';
+        let inQuotes = false;
+        
+        for (let i = 0; i < line.length; i++) {
+            const char = line[i];
+            
+            if (char === '"') {
+                if (inQuotes && line[i + 1] === '"') {
+                    current += '"';
+                    i++;
+                } else {
+                    inQuotes = !inQuotes;
+                }
+            } else if (char === ',' && !inQuotes) {
+                result.push(current.trim());
+                current = '';
+            } else {
+                current += char;
+            }
+        }
+        
+        result.push(current.trim());
+        return result;
     }
     
     // インポートデータのプレビュー表示
